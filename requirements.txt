@@ -7,6 +7,6 @@ fastapi>=0.110
 uvicorn>=0.23
 pydantic>=2.0
 python-multipart>=0.0.9
-streamlit>=1.33
 matplotlib>=3.8
 requests>=2.31
+prophet

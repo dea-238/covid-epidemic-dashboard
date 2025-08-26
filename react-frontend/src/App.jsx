@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, Area, BarChart, Bar, ReferenceLine, ComposedChart
+  ResponsiveContainer, Bar, ComposedChart, ReferenceLine
 } from "recharts";
-import { ShieldCheck, TrendingUp, Users, Activity, Calendar, HelpCircle, Hospital, Sun, Moon } from 'lucide-react';
-
+import { ShieldCheck, TrendingUp, Users, Activity, Calendar, HelpCircle, Hospital } from 'lucide-react';
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -57,7 +56,10 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+      if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.detail || `API Error: ${response.statusText}`);
+      }
       const data = await response.json();
       onSuccess(data);
     } catch (error) {
@@ -74,6 +76,7 @@ export default function App() {
     setRtSeries(null);
     setInterventionImpact(null);
     setSeasonality(null);
+    setActiveTab('overview');
     fetchData(`ingest/${dataSource}`, { country }, 'main', (data) => {
       setDates(data.dates);
       setCases(data.cases);
@@ -113,19 +116,12 @@ export default function App() {
     });
   };
 
-  // Effect to automatically fetch data for tabs when they are opened
   useEffect(() => {
-    if (!dataLoaded) return; // Don't fetch if no base data is loaded
-
-    if (activeTab === 'overview' && !forecast) {
-      runForecast();
-      runRt();
-    } else if (activeTab === 'masks' && !interventionImpact) {
-      analyzeMasks();
-    } else if (activeTab === 'seasonality' && !seasonality) {
-      runForecast();
+    if (dataLoaded && activeTab === 'overview') {
+      if (!forecast) runForecast();
+      if (!rtSeries) runRt();
     }
-  }, [activeTab, dataLoaded]);
+  }, [dataLoaded, activeTab]);
   
   const renderContent = () => {
     if (!dataLoaded) {
@@ -139,7 +135,7 @@ export default function App() {
       case 'overview':
         return <OverviewTab chartData={chartData} forecast={forecast} rtSeries={rtSeries} />;
       case 'masks':
-        return <MasksTab data={interventionImpact} />;
+        return <MasksTab data={interventionImpact} onAnalyze={analyzeMasks} />;
       case 'seasonality':
         return <SeasonalityTab data={seasonality} />;
       case 'preparedness':
@@ -175,7 +171,7 @@ export default function App() {
 
 const Header = () => (
   <header className="text-center mb-6">
-    <h1 className="text-4xl font-bold text-blue-600">Epidemic Explorer for Kids</h1>
+    <h1 className="text-4xl font-bold text-blue-600">Epidemic Explorer</h1>
     <p className="text-gray-600 mt-2">Learn how we can fight germs together! 🦸‍♀️🦸‍♂️</p>
   </header>
 );
@@ -245,7 +241,7 @@ const OverviewTab = ({ chartData, forecast, rtSeries }) => (
     <div className="lg:col-span-2">
       <h3 className="font-bold mb-2 text-lg">Daily Cases and Future Forecast</h3>
       <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart data={[...chartData, ...(forecast || []).map(f => ({ date: f.date, cases: null }))]}>
+        <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="date" tick={{ fontSize: 10 }} />
           <YAxis />
@@ -266,33 +262,42 @@ const OverviewTab = ({ chartData, forecast, rtSeries }) => (
           <XAxis dataKey="date" tick={{ fontSize: 10 }} />
           <YAxis domain={[0, 'auto']} />
           <Tooltip />
-          <ReferenceLine y={1} label="Control Line" stroke="red" strokeDasharray="3 3" />
+          <Legend />
           <Line type="monotone" dataKey="rt" name="Rₜ" stroke="#82ca9d" dot={false} />
+          <ReferenceLine y={1} label="Control Line" stroke="red" strokeDasharray="3 3" />
         </LineChart>
       </ResponsiveContainer>
     </div>
   </div>
 );
 
-const MasksTab = ({ data }) => (
-    <div>
-        <h3 className="font-bold text-lg mb-2">How Masks Can Be Superheroes!</h3>
-        <p className="text-sm text-gray-600 mb-4">Masks are like shields that help stop germs from spreading. This chart shows the real cases compared to how many there might have been if everyone wore masks.</p>
-        {data ? (
-            <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={data}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="Actual Cases" stroke="#8884d8" dot={false} />
-                    <Line type="monotone" dataKey="With Masks" stroke="#82ca9d" dot={false} strokeWidth={2} />
-                </LineChart>
-            </ResponsiveContainer>
-        ) : <div className="text-center p-8 text-gray-500">This chart will appear once the analysis is complete.</div>}
-    </div>
-);
+const MasksTab = ({ data, onAnalyze }) => {
+    useEffect(() => {
+        if (!data) {
+            onAnalyze();
+        }
+    }, [data, onAnalyze]);
+
+    return (
+        <div>
+            <h3 className="font-bold text-lg mb-2">How Masks Can Be Superheroes!</h3>
+            <p className="text-sm text-gray-600 mb-4">Masks are like shields that help stop germs from spreading. This chart shows the real cases compared to how many there might have been if everyone wore masks.</p>
+            {data ? (
+                <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={data}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Line type="monotone" dataKey="Actual Cases" stroke="#8884d8" dot={false} />
+                        <Line type="monotone" dataKey="With Masks" name="Cases with Masks" stroke="#82ca9d" dot={false} strokeWidth={2} />
+                    </LineChart>
+                </ResponsiveContainer>
+            ) : <div className="text-center p-8 text-gray-500">Calculating the power of masks...</div>}
+        </div>
+    );
+}
 
 const SeasonalityTab = ({ data }) => (
     <div>
@@ -311,7 +316,7 @@ const SeasonalityTab = ({ data }) => (
                     <Line type="monotone" dataKey="yearly" name="Yearly Pattern" stroke="#82ca9d" dot={false} />
                 </ComposedChart>
             </ResponsiveContainer>
-        ) : <div className="text-center p-8 text-gray-500">This chart will appear once the forecast is calculated.</div>}
+        ) : <div className="text-center p-8 text-gray-500">This chart appears after the forecast is calculated on the Overview tab.</div>}
     </div>
 );
 

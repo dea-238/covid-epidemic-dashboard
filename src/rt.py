@@ -9,7 +9,8 @@ def _discrete_gamma_pmf(k_max: int, mean_si: float, shape: float = 2.0) -> np.nd
     cdf = Gamma.cdf(s, a=shape, scale=scale)
     cdf_prev = Gamma.cdf(s-1, a=shape, scale=scale)
     pmf = np.maximum(cdf - cdf_prev, 0)
-    pmf = pmf / pmf.sum()
+    if pmf.sum() > 0:
+        pmf = pmf / pmf.sum()
     return pmf
 
 def estimate_rt(df: pd.DataFrame, serial_interval: float = 4.0, window: int = 7) -> pd.DataFrame:
@@ -21,28 +22,22 @@ def estimate_rt(df: pd.DataFrame, serial_interval: float = 4.0, window: int = 7)
     w = _discrete_gamma_pmf(k_max=k_max, mean_si=serial_interval)
 
     Rt = []
-    Rt_low = []
-    Rt_high = []
     for t in range(len(df)):
         if t == 0:
-            Rt.append(np.nan); Rt_low.append(np.nan); Rt_high.append(np.nan); continue
+            Rt.append(np.nan)
+            continue
         Ipast = df['I'].values[max(0, t-k_max):t]
         w_trunc = w[-len(Ipast):]
         denom = np.sum(w_trunc * Ipast[::-1])
         numer = df['I'].iloc[t]
         if denom <= 1e-8:
-            Rt.append(np.nan); Rt_low.append(np.nan); Rt_high.append(np.nan)
+            Rt.append(np.nan)
             continue
         r = float(numer / denom)
-        se = 1.0 / np.sqrt(max(numer, 1.0))
         Rt.append(r)
-        Rt_low.append(max(0.0, r * np.exp(-1.96*se)))
-        Rt_high.append(r * np.exp(1.96*se))
 
     out = pd.DataFrame({
         'date': df['date'].values,
         'R_t': Rt,
-        'R_t_low': Rt_low,
-        'R_t_high': Rt_high,
     })
     return out
