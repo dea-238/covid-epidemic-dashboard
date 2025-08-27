@@ -50,6 +50,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [dataLoaded, setDataLoaded] = useState(false);
   const [yAxisScale, setYAxisScale] = useState('linear');
+  
+  // FIX: Added error state management
+  const [error, setError] = useState(null);
+  
+  // FIX: Added flags to prevent duplicate API calls
+  const [apiCallFlags, setApiCallFlags] = useState({
+    forecastRequested: false,
+    rtRequested: false
+  });
 
   // --- Memoized Calculations for Performance ---
   const chartData = useMemo(() => dates.map((d, i) => ({ date: d, cases: cases[i] || 0, deaths: deaths[i] || 0 })), [dates, cases, deaths]);
@@ -62,6 +71,7 @@ export default function App() {
   // --- API Calls ---
   async function fetchData(endpoint, payload, loaderKey, onSuccess) {
     setLoading(prev => ({ ...prev, [loaderKey]: true }));
+    setError(null); // FIX: Clear previous errors
     try {
       const response = await fetch(`${API_BASE}/${endpoint}`, {
         method: "POST",
@@ -74,9 +84,10 @@ export default function App() {
       }
       const data = await response.json();
       onSuccess(data);
+      return data; // FIX: Return the data for promise chaining
     } catch (error) {
       console.error(`Failed to fetch from ${endpoint}:`, error);
-      // Re-throw the error so it can be caught by the calling function
+      setError(`Failed to load ${endpoint}: ${error.message}`); // FIX: Set user-friendly error
       throw error;
     } finally {
       setLoading(prev => ({ ...prev, [loaderKey]: false }));
@@ -91,16 +102,28 @@ export default function App() {
     setSeasonality(null);
     setHospitalizationData(null);
     setActiveTab('overview');
+    setError(null); // FIX: Clear errors when loading new data
+    
+    // FIX: Reset API call flags
+    setApiCallFlags({ forecastRequested: false, rtRequested: false });
+    
     fetchData(`ingest/${dataSource}`, { country }, 'main', (data) => {
       setDates(data.dates);
       setCases(data.cases);
       setDeaths(data.deaths || []);
       setDataLoaded(true);
+    }).catch(() => {
+      // Error is already handled in fetchData, just ensure dataLoaded stays false
+      setDataLoaded(false);
     });
   }
 
   const runForecast = () => {
-    if (!dataLoaded) return;
+    if (!dataLoaded || apiCallFlags.forecastRequested || forecast) return;
+    
+    // FIX: Set flag to prevent duplicate calls
+    setApiCallFlags(prev => ({ ...prev, forecastRequested: true }));
+    
     fetchData('forecast', { dates, cases, horizon: 90, country_name: country }, 'tab', (data) => {
       const forecastData = data.forecast_dates.map((d, i) => ({
         date: d, mean: data.forecast_mean[i],
@@ -115,13 +138,23 @@ export default function App() {
         yearly: data.seasonality.yearly?.[i] ?? 0,
       }));
       setSeasonality(seasonalityData);
+    }).catch(() => {
+      // FIX: Reset flag on error so user can retry
+      setApiCallFlags(prev => ({ ...prev, forecastRequested: false }));
     });
   };
 
   const runRt = () => {
-    if (!dataLoaded) return;
+    if (!dataLoaded || apiCallFlags.rtRequested || rtSeries) return;
+    
+    // FIX: Set flag to prevent duplicate calls
+    setApiCallFlags(prev => ({ ...prev, rtRequested: true }));
+    
     fetchData('rt', { dates, cases }, 'tab', (data) => {
       setRtSeries(data.dates.map((d, i) => ({ date: d, rt: data.rt[i] })));
+    }).catch(() => {
+      // FIX: Reset flag on error so user can retry
+      setApiCallFlags(prev => ({ ...prev, rtRequested: false }));
     });
   };
 
@@ -137,9 +170,10 @@ export default function App() {
     });
   };
 
+  // FIX: Properly return the promise from fetchData with better error handling
   const loadHospitalizationData = () => {
       if(!dataLoaded) return Promise.resolve();
-      // FIX: Ensure the promise from fetchData is returned
+      
       return fetchData('hospitalizations', { country }, 'tab', (data) => {
           const hospData = data.dates.map((d, i) => ({
               date: d,
@@ -147,17 +181,46 @@ export default function App() {
               icu: data.icu[i]
           }));
           setHospitalizationData(hospData);
-      })
+      }).catch((error) => {
+          // Handle 404 specifically for missing hospitalization data
+          if (error.message.includes('No hospitalization data found')) {
+              setHospitalizationData([]); // Set empty array to indicate no data available
+              return Promise.resolve(); // Don't propagate the error
+          }
+          // For other errors, let them bubble up
+          throw error;
+      });
   }
 
+  // FIX: Improved useEffect with better dependency management
   useEffect(() => {
     if (dataLoaded && activeTab === 'overview') {
-      if (!forecast) runForecast();
-      if (!rtSeries) runRt();
+      // Only run if we haven't already requested these and don't have the data
+      if (!forecast && !apiCallFlags.forecastRequested) {
+        runForecast();
+      }
+      if (!rtSeries && !apiCallFlags.rtRequested) {
+        runRt();
+      }
     }
-  }, [dataLoaded, activeTab]);
+  }, [dataLoaded, activeTab, forecast, rtSeries, apiCallFlags.forecastRequested, apiCallFlags.rtRequested]);
   
   const renderContent = () => {
+    // FIX: Show error state if there's an error
+    if (error) {
+      return (
+        <div className="text-center p-10">
+          <div className="text-red-500 mb-4">⚠️ {error}</div>
+          <button 
+            onClick={loadData}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    
     if (!dataLoaded) {
         return <div className="text-center p-10 text-gray-500">Please load data for a country to begin exploring.</div>;
     }
