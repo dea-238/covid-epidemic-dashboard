@@ -33,15 +33,32 @@ def fit_forecast(df: pd.DataFrame, horizon: int, country_name: str = None):
         forecast_df[col] = forecast_df[col].clip(lower=0)
 
     # Prepare the seasonality dataframe
-    seasonality_df = get_seasonality_components(model, forecast)
+    seasonality_df = get_seasonality_components(model)
 
-    return forecast_df, seasonality_df
+    return forecast_df.tail(horizon), seasonality_df
 
-def get_seasonality_components(model, forecast):
+def get_seasonality_components(model):
     """
-    Extracts seasonality and holiday components from the Prophet model's full forecast.
+    Extracts seasonality and holiday components from the Prophet model.
     """
-    seasonality_data = forecast[['ds', 'holidays', 'weekly', 'yearly']].rename(columns={'ds': 'date'})
-    seasonality_data['date'] = seasonality_data['date'].dt.strftime('%Y-%m-%d')
+    from prophet.plot import plot_weekly, plot_yearly
+    import matplotlib.pyplot as plt
+    
+    # This is a placeholder as we can't directly return plots.
+    # We will return the components from the model instead.
+    
+    active_seasonalities = []
+    if 'weekly' in model.seasonalities:
+        active_seasonalities.append('weekly')
+    if 'yearly' in model.seasonalities:
+        active_seasonalities.append('yearly')
+    if model.holidays is not None:
+        active_seasonalities.append('holidays')
+
+    future = model.make_future_dataframe(periods=365)
+    forecast = model.predict(future)
+    
+    seasonality_data = forecast[['ds'] + active_seasonalities]
+    seasonality_data['ds'] = seasonality_data['ds'].dt.strftime('%Y-%m-%d')
     
     return seasonality_data

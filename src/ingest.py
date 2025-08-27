@@ -8,7 +8,16 @@ def get_jhu_data(country: str) -> pd.DataFrame:
     
     def process_jhu_df(url: str, country: str) -> pd.Series:
         df = pd.read_csv(url)
-        country_df = df[df['Country/Region'] == country]
+        # Handle case-insensitivity and common names
+        country_df = df[df['Country/Region'].str.lower() == country.lower()]
+        if country_df.empty:
+            # Add more aliases as needed
+            country_aliases = {
+                "united states": "us",
+                "united kingdom": "uk"
+            }
+            country_df = df[df['Country/Region'].str.lower() == country_aliases.get(country.lower(), "")]
+        
         if country_df.empty:
             return None
         # Sum up provinces/states to get a single national number
@@ -41,7 +50,7 @@ def get_who_data(country: str) -> pd.DataFrame:
     url = "https://covid19.who.int/WHO-COVID-19-global-data.csv"
     df = pd.read_csv(url, parse_dates=['Date_reported'])
     
-    country_df = df[df['Country'] == country].copy()
+    country_df = df[df['Country'].str.lower() == country.lower()].copy()
     
     if country_df.empty:
         return pd.DataFrame()
