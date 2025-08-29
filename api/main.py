@@ -22,6 +22,20 @@ app = FastAPI(
     version="5.3.1"  # FIX: Version increment for improvements
 )
 
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {
+        "message": "Epidemic Explorer API is running!",
+        "version": "5.3.1",
+        "status": "healthy",
+        "docs": "/docs",
+        "endpoints": [
+            "/ingest/jhu", "/ingest/who", "/forecast", 
+            "/rt", "/intervention", "/hospitalization"
+        ]
+    }
+
 # Add CORS middleware to allow the React frontend to communicate with this backend
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
@@ -255,11 +269,37 @@ def hospitalizations_endpoint(req: IngestRequest):
                 "message": f"No hospitalization data available for '{req.country}'"
             }
         
-        # FIX: Better handling of missing columns
+        # FIX: Ensure proper hospitalization data processing
+        dates_list = df['date'].dt.strftime('%Y-%m-%d').tolist()
+        
+        # Debug: Check what columns we have
+        logger.info(f"DataFrame columns: {df.columns.tolist()}")
+        logger.info(f"DataFrame shape: {df.shape}")
+        
+        # Get the actual data values
+        hospitalizations_list = df['hospitalizations'].tolist() if 'hospitalizations' in df.columns else []
+        icu_list = df['icu'].tolist() if 'icu' in df.columns else []
+        
+        # Debug: Check data ranges
+        if hospitalizations_list:
+            logger.info(f"Hospitalizations range: {min(hospitalizations_list):.1f} to {max(hospitalizations_list):.1f}")
+        if icu_list:
+            logger.info(f"ICU range: {min(icu_list):.1f} to {max(icu_list):.1f}")
+        
+        # Ensure we have data
+        if not hospitalizations_list and not icu_list:
+            logger.warning(f"No hospitalization data in DataFrame for {req.country}")
+            return {
+                "dates": [],
+                "hospitalizations": [],
+                "icu": [],
+                "message": f"No hospitalization data available for '{req.country}'"
+            }
+        
         result = {
-            "dates": df['date'].dt.strftime('%Y-%m-%d').tolist(),
-            "hospitalizations": df.get('hospitalizations', []).tolist() if 'hospitalizations' in df.columns else [],
-            "icu": df.get('icu', []).tolist() if 'icu' in df.columns else [],
+            "dates": dates_list,
+            "hospitalizations": hospitalizations_list,
+            "icu": icu_list,
             "message": f"Successfully loaded {len(df)} hospitalization records"
         }
         

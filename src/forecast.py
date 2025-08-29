@@ -1,10 +1,19 @@
 import pandas as pd
-from prophet import Prophet
+try:
+    from prophet import Prophet
+    PROPHET_AVAILABLE = True
+except ImportError:
+    PROPHET_AVAILABLE = False
+    print("Warning: Prophet not available. Forecast functionality will be limited.")
 
 def fit_forecast(df: pd.DataFrame, horizon: int, country_name: str = None):
     """
     Fits a Prophet model and returns the forecast and seasonality dataframes.
     """
+    if not PROPHET_AVAILABLE:
+        # Fallback to simple linear trend if Prophet is not available
+        return _simple_forecast(df, horizon)
+    
     df_prophet = df.rename(columns={'date': 'ds', 'cases': 'y'})
     
     model = Prophet(
@@ -62,3 +71,44 @@ def get_seasonality_components(model):
     seasonality_data['ds'] = seasonality_data['ds'].dt.strftime('%Y-%m-%d')
     
     return seasonality_data
+
+def _simple_forecast(df: pd.DataFrame, horizon: int):
+    """
+    Simple linear trend forecast as fallback when Prophet is not available.
+    """
+    import numpy as np
+    from datetime import timedelta
+    
+    # Simple linear regression on the last 30 days
+    recent_data = df.tail(30).copy()
+    recent_data['days'] = range(len(recent_data))
+    
+    # Fit linear trend
+    if len(recent_data) > 1:
+        slope = np.polyfit(recent_data['days'], recent_data['cases'], 1)[0]
+        intercept = recent_data['cases'].iloc[-1]
+    else:
+        slope = 0
+        intercept = recent_data['cases'].iloc[0] if len(recent_data) > 0 else 0
+    
+    # Generate forecast dates
+    last_date = df['date'].max()
+    forecast_dates = [last_date + timedelta(days=i+1) for i in range(horizon)]
+    
+    # Generate forecast values
+    forecast_values = [max(0, intercept + slope * (i+1)) for i in range(horizon)]
+    
+    # Create forecast dataframe with confidence intervals (simplified)
+    forecast_df = pd.DataFrame({
+        'date': forecast_dates,
+        'mean': forecast_values,
+        'lower_95': [max(0, val * 0.8) for val in forecast_values],
+        'upper_95': [val * 1.2 for val in forecast_values]
+    })
+    
+    # Simple seasonality data (empty for fallback)
+    seasonality_df = pd.DataFrame({
+        'ds': [str(date.date()) for date in forecast_dates[:7]],
+    })
+    
+    return forecast_df, seasonality_df
